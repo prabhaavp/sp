@@ -73,7 +73,11 @@ class SelfdriveD(CruiseHelper):
     self.gps_location_service = get_gps_location_service(self.params)
     self.gps_packets = [self.gps_location_service]
     self.sensor_packets = ["accelerometer", "gyroscope"]
-    self.camera_packets = ["roadCameraState", "driverCameraState", "wideRoadCameraState"]
+    self.camera_packets = ["roadCameraState", "driverCameraState"]
+
+    # ignore any residual wide‐camera state if it sneaks in
+    self.sm.ignore_alive.append("wideRoadCameraState")
+    self.sm.ignore_valid.append("wideRoadCameraState")
 
     # TODO: de-couple selfdrived with card/conflate on carState without introducing controls mismatches
     self.car_state_sock = messaging.sub_sock('carState', timeout=20)
@@ -424,9 +428,9 @@ class SelfdriveD(CruiseHelper):
         if VisionStreamType.VISION_STREAM_ROAD not in available_streams:
           self.sm.ignore_alive.append('roadCameraState')
           self.sm.ignore_valid.append('roadCameraState')
-        if VisionStreamType.VISION_STREAM_WIDE_ROAD not in available_streams:
-          self.sm.ignore_alive.append('wideRoadCameraState')
-          self.sm.ignore_valid.append('wideRoadCameraState')
+        #if VisionStreamType.VISION_STREAM_WIDE_ROAD not in available_streams:
+          #self.sm.ignore_alive.append('wideRoadCameraState')
+          #self.sm.ignore_valid.append('wideRoadCameraState')
 
         if REPLAY and any(ps.controlsAllowed for ps in self.sm['pandaStates']):
           self.state_machine.state = State.enabled
