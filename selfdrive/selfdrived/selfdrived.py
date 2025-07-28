@@ -75,10 +75,6 @@ class SelfdriveD(CruiseHelper):
     self.sensor_packets = ["accelerometer", "gyroscope"]
     self.camera_packets = ["roadCameraState", "driverCameraState"]
 
-    # ignore any residual wide‐camera state if it sneaks in
-    self.sm.ignore_alive.append("wideRoadCameraState")
-    self.sm.ignore_valid.append("wideRoadCameraState")
-
     # TODO: de-couple selfdrived with card/conflate on carState without introducing controls mismatches
     self.car_state_sock = messaging.sub_sock('carState', timeout=20)
 
@@ -96,6 +92,10 @@ class SelfdriveD(CruiseHelper):
                                   ignore_alive=ignore, ignore_avg_freq=ignore,
                                   ignore_valid=ignore, frequency=int(1/DT_CTRL))
 
+    # ignore any residual wide‐camera state if it sneaks in
+    self.sm.ignore_alive.append("wideRoadCameraState")
+    self.sm.ignore_valid.append("wideRoadCameraState")
+    
     # read params
     self.is_metric = self.params.get_bool("IsMetric")
     self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
