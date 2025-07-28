@@ -40,6 +40,15 @@ class Controls(ControlsExt):
     # Initialize sunnypilot controlsd extension
     ControlsExt.__init__(self, self.CP, self.params)
 
+    # For Lateral Resume Delay feature (Final FrogPilot logic)
+    self.lateral_resume_delay = 3.0
+    self.pause_steer_below_speed = 24 * CV.MPH_TO_MS
+
+    # Variables to track blinker state
+    self.last_blinker_on = False
+    self.last_blinker_ts = 0.0
+    self.blinker_min_speed = 0.0  # To store the minimum speed during a blinker event
+
     self.CI = interfaces[self.CP.carFingerprint](self.CP, self.CP_SP)
 
     self.sm = messaging.SubMaster(['liveParameters', 'liveTorqueParameters', 'modelV2', 'selfdriveState',
@@ -107,6 +116,37 @@ class Controls(ControlsExt):
 
     # Get which state to use for active lateral control
     _lat_active = self.get_lat_active(self.sm)
+
+    # Final FrogPilot-style Lateral Resume Delay logic
+    current_blinker_on = CS.leftBlinker or CS.rightBlinker
+
+    # 1. Track minimum speed while the blinker is active
+    if current_blinker_on:
+      # If blinker just turned on, initialize the min speed
+      if not self.last_blinker_on:
+        self.blinker_min_speed = CS.vEgo
+      # Otherwise, update it with the minimum of the current and recorded speeds
+      else:
+        self.blinker_min_speed = min(self.blinker_min_speed, CS.vEgo)
+
+      # Keep track of the last time the blinker was on
+      self.last_blinker_ts = time.monotonic()
+
+    # 2. Check if we should pause lateral control after the blinker turns off
+    lat_paused_for_blinker_delay = False
+    if self.lateral_resume_delay > 0 and not current_blinker_on:
+      time_since_blinker = time.monotonic() - self.last_blinker_ts
+      # Check if delay is active and if the minimum speed during the signal was
+      # below HALF of the pause speed threshold.
+      if time_since_blinker < self.lateral_resume_delay and self.blinker_min_speed < (self.pause_steer_below_speed):
+        lat_paused_for_blinker_delay = True
+
+    # This variable needs to be updated at the end of the checks for the next loop
+    self.last_blinker_on = current_blinker_on
+
+    # 3. Apply the pause to the final latActive check
+    if lat_paused_for_blinker_delay:
+      _lat_active = False
 
     CC.latActive = _lat_active and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
                    (not standstill or self.CP.steerAtStandstill)
