@@ -84,7 +84,7 @@ class SelfdriveD(CruiseHelper):
     self.gps_location_service = get_gps_location_service(self.params)
     self.gps_packets = [self.gps_location_service]
     self.sensor_packets = ["accelerometer", "gyroscope"]
-    self.camera_packets = ["roadCameraState", "driverCameraState", "wideRoadCameraState"]
+    self.camera_packets = ["roadCameraState", "driverCameraState"]
 
     # TODO: de-couple selfdrived with card/conflate on carState without introducing controls mismatches
     self.car_state_sock = messaging.sub_sock('carState', timeout=20)
@@ -103,6 +103,13 @@ class SelfdriveD(CruiseHelper):
                                    self.camera_packets + self.sensor_packets + self.gps_packets,
                                   ignore_alive=ignore, ignore_avg_freq=ignore,
                                   ignore_valid=ignore, frequency=int(1/DT_CTRL))
+
+    # wideRoadCameraState is subscribed but not processed to avoid issues with video recording
+
+    # Debug: Log camera state availability
+    cloudlog.info(f"Camera packets: {self.camera_packets}")
+    cloudlog.info(f"SM alive: { {k: self.sm.alive.get(k, False) for k in self.camera_packets + ['wideRoadCameraState']} }")
+    cloudlog.info(f"SM valid: { {k: self.sm.valid.get(k, False) for k in self.camera_packets + ['wideRoadCameraState']} }")
 
     # read params
     self.is_metric = self.params.get_bool("IsMetric")
@@ -469,6 +476,14 @@ class SelfdriveD(CruiseHelper):
 
     self.sm.update(0)
 
+    # Debug: Log camera state availability periodically
+    if self.sm.frame % 100 == 0:  # Log every 100 frames
+      cloudlog.info(f"Camera packets alive: { {k: self.sm.alive.get(k, False) for k in self.camera_packets} }")
+      cloudlog.info(f"WideRoadCameraState alive: {self.sm.alive.get('wideRoadCameraState', False)}")
+      cloudlog.info(f"Camera packets valid: { {k: self.sm.valid.get(k, False) for k in self.camera_packets} }")
+      cloudlog.info(f"WideRoadCameraState valid: {self.sm.valid.get('wideRoadCameraState', False)}")
+      cloudlog.info(f"WideRoadCameraState in data: {'wideRoadCameraState' in self.sm.data.keys()}")
+
     if not self.initialized:
       all_valid = CS.canValid and self.sm.all_checks()
       timed_out = self.sm.frame * DT_CTRL > 6.
@@ -477,9 +492,6 @@ class SelfdriveD(CruiseHelper):
         if VisionStreamType.VISION_STREAM_ROAD not in available_streams:
           self.sm.ignore_alive.append('roadCameraState')
           self.sm.ignore_valid.append('roadCameraState')
-        if VisionStreamType.VISION_STREAM_WIDE_ROAD not in available_streams:
-          self.sm.ignore_alive.append('wideRoadCameraState')
-          self.sm.ignore_valid.append('wideRoadCameraState')
 
         if REPLAY and any(ps.controlsAllowed for ps in self.sm['pandaStates']):
           self.state_machine.state = State.enabled
