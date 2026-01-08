@@ -16,7 +16,7 @@ from openpilot.common.transformations.orientation import rot_from_euler
 OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.LiveCalibrationData.Status.calibrated
 ROAD_CAM = VisionStreamType.VISION_STREAM_ROAD
-WIDE_CAM = VisionStreamType.VISION_STREAM_WIDE_ROAD
+# WIDE_CAM = VisionStreamType.VISION_STREAM_WIDE_ROAD
 DEFAULT_DEVICE_CAMERA = DEVICE_CAMERAS["tici", "ar0231"]
 
 BORDER_COLORS = {
@@ -25,18 +25,18 @@ BORDER_COLORS = {
   UIStatus.ENGAGED: rl.Color(0x17, 0x86, 0x44, 0xF1),      # Green for engaged state
 }
 
-WIDE_CAM_MAX_SPEED = 10.0  # m/s (22 mph)
-ROAD_CAM_MIN_SPEED = 15.0  # m/s (34 mph)
+# WIDE_CAM_MAX_SPEED = 10.0  # m/s (22 mph)
+# ROAD_CAM_MIN_SPEED = 15.0  # m/s (34 mph)
+INF_POINT = np.array([1000.0, 0.0, 0.0])
 
 
 class AugmentedRoadView(CameraView):
   def __init__(self, stream_type: VisionStreamType = VisionStreamType.VISION_STREAM_ROAD):
-    super().__init__("camerad", stream_type)
+    super().__init__("camerad", ROAD_CAM)
     self._set_placeholder_color(BORDER_COLORS[UIStatus.DISENGAGED])
 
     self.device_camera: DeviceCameraConfig | None = None
     self.view_from_calib = view_frame_from_device_frame.copy()
-    self.view_from_wide_calib = view_frame_from_device_frame.copy()
 
     self._last_calib_time: float = 0
     self._last_rect_dims = (0.0, 0.0)
@@ -60,7 +60,7 @@ class AugmentedRoadView(CameraView):
     if not ui_state.started:
       return
 
-    self._switch_stream_if_needed(ui_state.sm)
+    # self._switch_stream_if_needed(ui_state.sm)
 
     # Update calibration before rendering
     self._update_calibration()
@@ -110,22 +110,6 @@ class AugmentedRoadView(CameraView):
     border_color = BORDER_COLORS.get(ui_state.status, BORDER_COLORS[UIStatus.DISENGAGED])
     rl.draw_rectangle_lines_ex(rect, UI_BORDER_SIZE, border_color)
 
-  def _switch_stream_if_needed(self, sm):
-    if sm['selfdriveState'].experimentalMode and WIDE_CAM in self.available_streams:
-      v_ego = sm['carState'].vEgo
-      if v_ego < WIDE_CAM_MAX_SPEED:
-        target = WIDE_CAM
-      elif v_ego > ROAD_CAM_MIN_SPEED:
-        target = ROAD_CAM
-      else:
-        # Hysteresis zone - keep current stream
-        target = self.stream_type
-    else:
-      target = ROAD_CAM
-
-    if self.stream_type != target:
-      self.switch_stream(target)
-
   def _update_calibration(self):
     # Update device camera if not already set
     sm = ui_state.sm
@@ -144,10 +128,6 @@ class AugmentedRoadView(CameraView):
     device_from_calib = rot_from_euler(calib.rpyCalib)
     self.view_from_calib = view_frame_from_device_frame @ device_from_calib
 
-    # Update wide calibration if available
-    if hasattr(calib, 'wideFromDeviceEuler') and len(calib.wideFromDeviceEuler) == 3:
-      wide_from_device = rot_from_euler(calib.wideFromDeviceEuler)
-      self.view_from_wide_calib = view_frame_from_device_frame @ wide_from_device @ device_from_calib
 
   def _calc_frame_matrix(self, rect: rl.Rectangle) -> np.ndarray:
     # Check if we can use cached matrix
@@ -161,10 +141,10 @@ class AugmentedRoadView(CameraView):
 
     # Get camera configuration
     device_camera = self.device_camera or DEFAULT_DEVICE_CAMERA
-    is_wide_camera = self.stream_type == WIDE_CAM
-    intrinsic = device_camera.ecam.intrinsics if is_wide_camera else device_camera.fcam.intrinsics
-    calibration = self.view_from_wide_calib if is_wide_camera else self.view_from_calib
-    zoom = 2.0 if is_wide_camera else 1.1
+
+    intrinsic = device_camera.fcam.intrinsics
+    calibration = self.view_from_calib
+    zoom = 1.1
 
     # Calculate transforms for vanishing point
     inf_point = np.array([1000.0, 0.0, 0.0])
@@ -218,10 +198,6 @@ if __name__ == "__main__":
   try:
     for _ in gui_app.render():
       ui_state.update()
-      if rl.is_key_released(rl.KeyboardKey.KEY_SPACE):
-        if WIDE_CAM in road_camera_view.available_streams:
-          stream = ROAD_CAM if road_camera_view.stream_type == WIDE_CAM else WIDE_CAM
-          road_camera_view.switch_stream(stream)
       road_camera_view.render(rl.Rectangle(0, 0, gui_app.width, gui_app.height))
   finally:
     road_camera_view.close()

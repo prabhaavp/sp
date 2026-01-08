@@ -42,6 +42,12 @@ class Controls(ControlsExt, ModelStateBase):
     # Initialize sunnypilot controlsd extension and base model state
     ControlsExt.__init__(self, self.CP, self.params)
     ModelStateBase.__init__(self)
+    # Lateral Resume Delay Feature
+    self.lateral_resume_delay = 3.0  # seconds
+    self.pause_steer_below_speed = 24 * CV.MPH_TO_MS
+    self.last_blinker_on = False
+    self.last_blinker_ts_ns = 0  # timestamp in ns
+    self.blinker_min_speed = 0.0
 
     self.CI = interfaces[self.CP.carFingerprint](self.CP, self.CP_SP)
 
@@ -112,6 +118,31 @@ class Controls(ControlsExt, ModelStateBase):
 
     # Get which state to use for active lateral control
     _lat_active = self.get_lat_active(self.sm)
+
+    current_blinker_on = CS.leftBlinker or CS.rightBlinker
+
+    # 1. Track minimum speed while blinker is on
+    if current_blinker_on:
+        if not self.last_blinker_on:
+            self.blinker_min_speed = CS.vEgo
+        else:
+            self.blinker_min_speed = min(self.blinker_min_speed, CS.vEgo)
+        # use logMonoTime for monotonic timestamp in ns
+        self.last_blinker_ts_ns = self.sm.logMonoTime['carState']
+
+    # 2. Check if lateral should pause after blinker off
+    lat_paused_for_blinker_delay = False
+    if self.lateral_resume_delay > 0 and not current_blinker_on and self.last_blinker_ts_ns > 0:
+        # convert ns to seconds
+        dt_sec = (self.sm.logMonoTime['carState'] - self.last_blinker_ts_ns) * 1e-9
+        if dt_sec < self.lateral_resume_delay and self.blinker_min_speed < self.pause_steer_below_speed:
+            lat_paused_for_blinker_delay = True
+
+    self.last_blinker_on = current_blinker_on
+
+    # 3. Apply pause
+    if lat_paused_for_blinker_delay:
+        _lat_active = False
 
     CC.latActive = _lat_active and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
                    (not standstill or self.CP.steerAtStandstill)
